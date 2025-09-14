@@ -167,7 +167,7 @@ export class AuthService {
 
     try {
       await this.resend.emails.send({
-        from: 'onboarding@resend.dev',
+        from: 'Acme <onboarding@resend.dev>',
         to: email,
         subject: 'Account Activation',
         html: htmlContent,
