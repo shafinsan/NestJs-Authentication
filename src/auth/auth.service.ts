@@ -9,32 +9,36 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { MailerService } from '@nestjs-modules/mailer';
+import { Resend } from 'resend';
 import { JwtService } from '@nestjs/jwt';
 
 import { EntityRole } from '../role/ENTITY/Entity.Role';
-
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { RegisterUserDto } from './RegisterUserDto/RegisterUserDto';
 import { User } from './Entity/User.entity';
 import { LoginUserDto } from './LoginUserDto/LoginUserDto';
 import { UserResponseDto } from './RegisterUserDto/UserResponseDto';
-import { NewPasswordDto, ResetPasswordDto, VerifyOtpDto } from './RegisterUserDto/reset-password.dto';
+import {
+  NewPasswordDto,
+  ResetPasswordDto,
+  VerifyOtpDto,
+} from './RegisterUserDto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
+  private resend: Resend;
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     @InjectRepository(EntityRole)
     private readonly roleRepository: Repository<EntityRole>,
-    private readonly mailerService: MailerService,
     private readonly jwtService: JwtService,
-  ) {}
+  ) {
+    this.resend = new Resend('re_TUP4hako_13iS3o7E8EDeo8KdCgErzQzk');
+  }
 
   async register(registerDto: RegisterUserDto): Promise<{ message: string }> {
-   
-  
     const existingUser = await this.userRepository.findOne({
       where: { email: registerDto.email },
     });
@@ -50,11 +54,8 @@ export class AuthService {
     }
 
     const hashedPassword = await bcrypt.hash(registerDto.password, 10);
-
-   
-
     const activationToken = crypto.randomBytes(32).toString('hex');
-    const activationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); 
+    const activationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
     const user = this.userRepository.create({
       ...registerDto,
@@ -105,27 +106,17 @@ export class AuthService {
       where: { email: loginDto.email },
       relations: ['role'],
     });
-    console.log('User found:', user);
-     const compare =
-      '$2b$10$TobeTuSpn5oHeTZ9Ahx1uOJEcz4BmcV0T8BCX3NHL8gpt1glPUFaa';
-    const passwordMatchess = await bcrypt.compare(
-      'securePassword123',
-      compare || '',
-    );
-    console.log('Password match:', passwordMatchess);
 
-    console.log('dto:', typeof loginDto.password);
-    if(loginDto.password=== 'securePassword123'){
-      console.log('hi:', passwordMatchess);
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
     }
 
     const passwordMatches = await bcrypt.compare(
       loginDto.password,
-      user?.password,
+      user.password,
     );
-    console.log('Password match:', passwordMatches);
 
-    if (!user || !passwordMatches) {
+    if (!passwordMatches) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -156,7 +147,6 @@ export class AuthService {
     };
   }
 
-
   private async sendActivationEmail(
     email: string,
     token: string,
@@ -175,25 +165,34 @@ export class AuthService {
     </div>
     `;
 
-    await this.mailerService.sendMail({
-      to: email,
-      subject: 'Account Activation',
-      html: htmlContent,
-    });
+    try {
+      await this.resend.emails.send({
+        from: 'onboarding@resend.dev',
+        to: email,
+        subject: 'Account Activation',
+        html: htmlContent,
+      });
+      console.log('Activation email sent successfully to:', email);
+    } catch (error) {
+      console.error('Resend activation email error:', error);
+      throw new InternalServerErrorException('Failed to send activation email');
+    }
   }
-  async requestPasswordReset(resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
-    const user = await this.userRepository.findOne({ 
-      where: { email: resetPasswordDto.email } 
+
+  async requestPasswordReset(
+    resetPasswordDto: ResetPasswordDto,
+  ): Promise<{ message: string }> {
+    const user = await this.userRepository.findOne({
+      where: { email: resetPasswordDto.email },
     });
 
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
- 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpires = new Date();
-    otpExpires.setMinutes(otpExpires.getMinutes() + 3); 
+    otpExpires.setMinutes(otpExpires.getMinutes() + 3);
 
     user.resetPasswordOtp = otp;
     user.resetPasswordOtpExpires = otpExpires;
@@ -205,45 +204,52 @@ export class AuthService {
   }
 
   async verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<{ isValid: boolean }> {
-    const user = await this.userRepository.findOne({ 
-      where: { 
+    const user = await this.userRepository.findOne({
+      where: {
         email: verifyOtpDto.email,
-        resetPasswordOtp: verifyOtpDto.otp 
-      } 
+        resetPasswordOtp: verifyOtpDto.otp,
+      },
     });
 
-    if (!user || !user.resetPasswordOtpExpires || user.resetPasswordOtpExpires < new Date()) {
+    if (
+      !user ||
+      !user.resetPasswordOtpExpires ||
+      user.resetPasswordOtpExpires < new Date()
+    ) {
       return { isValid: false };
     }
 
     return { isValid: true };
   }
 
-async resetPassword(newPasswordDto: NewPasswordDto): Promise<{ message: string }> {
-    const user = await this.userRepository.findOne({ 
-      where: { email: newPasswordDto.email } 
+  async resetPassword(
+    newPasswordDto: NewPasswordDto,
+  ): Promise<{ message: string }> {
+    const user = await this.userRepository.findOne({
+      where: { email: newPasswordDto.email },
     });
 
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-   
-    if (!user.resetPasswordOtpExpires || user.resetPasswordOtpExpires < new Date()) {
+    if (
+      !user.resetPasswordOtpExpires ||
+      user.resetPasswordOtpExpires < new Date()
+    ) {
       throw new UnauthorizedException('OTP has expired');
     }
 
- 
     const hashedPassword = await bcrypt.hash(newPasswordDto.newPassword, 10);
-    
-    
+
     user.password = hashedPassword;
     user.resetPasswordOtp = null;
     user.resetPasswordOtpExpires = null;
     await this.userRepository.save(user);
 
     return { message: 'Password reset successfully' };
-}
+  }
+
   private async sendOtpEmail(email: string, otp: string): Promise<void> {
     const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -255,10 +261,17 @@ async resetPassword(newPasswordDto: NewPasswordDto): Promise<{ message: string }
     </div>
     `;
 
-    await this.mailerService.sendMail({
-      to: email,
-      subject: 'Password Reset OTP',
-      html: htmlContent,
-    });
+    try {
+      await this.resend.emails.send({
+        from: 'onboarding@resend.dev',
+        to: email,
+        subject: 'Password Reset OTP',
+        html: htmlContent,
+      });
+      console.log('OTP email sent successfully to:', email);
+    } catch (error) {
+      console.error('Resend OTP email error:', error);
+      throw new InternalServerErrorException('Failed to send OTP email');
+    }
   }
 }

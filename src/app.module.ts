@@ -21,7 +21,7 @@ import { AdminUserControlModule } from './admin-user-control/admin-user-control.
       password: 'iPtPCqyuCUZXrJzkZcFqMZUhBsJQtOZj',
       database: 'railway',
       autoLoadEntities: true,
-      synchronize: true, 
+      synchronize: false, 
       ssl: {
         rejectUnauthorized: false, 
       },
