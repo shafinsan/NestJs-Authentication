@@ -161,7 +161,7 @@ export class AuthService {
     email: string,
     token: string,
   ): Promise<void> {
-    const activationLink = `http://localhost:3001/auth/activate?token=${token}`;
+    const activationLink = `https://nestjs-authentication-production.up.railway.app/auth/activate?token=${token}`;
 
     const htmlContent = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
