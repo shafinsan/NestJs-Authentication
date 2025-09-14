@@ -9,8 +9,8 @@ import { ConfigModule } from '@nestjs/config';
     MailerModule.forRoot({
       transport: {
         host: 'smtp.gmail.com',
-        port: 25,
-        secure: false,
+        port: 465,
+        secure: true,
         auth: {
           user: 'eliasjabershafin100@gmail.com',
           pass: 'qwbdiiwlvmmopcuy',
